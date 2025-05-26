@@ -3,7 +3,28 @@ const mysql = require("mysql2/promise");
 
 const app = express();
 app.use(express.json());
-
+const sendNotification = async (playerId, title, message) => {
+  const url = "https://api.onesignal.com/notifications?c=push";
+  const options = {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      Authorization:
+        "Key os_v2_app_dcg7swl5pnh3ll7ljjyfrhrqctcchw45w4peeumwiy3pfx2ajiztxhznumsdybqwrybdafe4w7xlfruw2vpnjzagbpl7kpq2mrby63y",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      app_id: "188df959-7d7b-4fb5-afeb-4a70589e3014",
+      contents: { en: message },
+      headings: { en: title },
+      include_player_ids: [playerId],
+    }),
+  };
+  fetch(url, options)
+    .then((res) => res.json())
+    .then((json) => console.log(json))
+    .catch((err) => console.error(err));
+};
 // MySQL bağlantısı
 const pool = mysql.createPool({
   host: "localhost",
@@ -143,7 +164,19 @@ app.post("/api/expenses", async (req, res) => {
       "SELECT * FROM expenses WHERE id = ?",
       [result.insertId]
     );
-
+    if (name == "melo") {
+      await sendNotification(
+        "a9ff4c2b-326b-4a0b-b981-6f67d9621bfc",
+        "Melo Paraları Saçıyor.",
+        "Melo " + expense + " TL harcadı."
+      );
+    } else {
+      await sendNotification(
+        "161402fd-e05a-4504-8859-b6b205c94834",
+        "Fato Paraları Saçıyor.",
+        "Fato " + expense + " TL harcadı."
+      );
+    }
     res.json({
       success: true,
       expense: newExpenseRows[0],
