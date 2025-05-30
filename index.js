@@ -37,9 +37,7 @@ const pool = mysql.createPool({
 app.post("/api/budget", async (req, res) => {
   let { startDate, endDate } = req.body;
   if (!startDate || !endDate) {
-    return res
-      .status(400)
-      .json({ error: "startDate and endDate are required" });
+    return res.status(400).json({ error: "startDate and endDate are required" });
   }
   startDate = startDate.split(".").reverse().join("-");
   endDate = endDate.split(".").reverse().join("-");
@@ -48,19 +46,17 @@ app.post("/api/budget", async (req, res) => {
   const conn = await pool.getConnection();
   try {
     // 1. Bu hafta daha önce var mı?
-    const [existingRows] = await conn.execute(
-      "SELECT * FROM weekly_budget WHERE start_date = ? AND end_date = ?",
-      [startDate, endDate]
-    );
+    const [existingRows] = await conn.execute("SELECT * FROM weekly_budget WHERE start_date = ? AND end_date = ?", [
+      startDate,
+      endDate,
+    ]);
 
     let week;
     if (existingRows.length > 0) {
       week = existingRows[0];
     } else {
       // 2. Settings'ten toplam aylık bütçeyi çek
-      const [settingsRows] = await conn.execute(
-        "SELECT total_budget FROM settings LIMIT 1"
-      );
+      const [settingsRows] = await conn.execute("SELECT total_budget FROM settings LIMIT 1");
       if (settingsRows.length === 0) {
         return res.status(500).json({ error: "Settings not found" });
       }
@@ -84,16 +80,17 @@ app.post("/api/budget", async (req, res) => {
       const adjustedBudget = Math.max(0, weeklyBaseBudget + adjustment);
 
       // 5. Yeni haftayı oluştur
-      await conn.execute(
-        "INSERT INTO weekly_budget (start_date, end_date, budget, spent) VALUES (?, ?, ?, 0)",
-        [startDate, endDate, adjustedBudget]
-      );
+      await conn.execute("INSERT INTO weekly_budget (start_date, end_date, budget, spent) VALUES (?, ?, ?, 0)", [
+        startDate,
+        endDate,
+        adjustedBudget,
+      ]);
 
       // 6. Oluşan veriyi al
-      const [newRows] = await conn.execute(
-        "SELECT * FROM weekly_budget WHERE start_date = ? AND end_date = ?",
-        [startDate, endDate]
-      );
+      const [newRows] = await conn.execute("SELECT * FROM weekly_budget WHERE start_date = ? AND end_date = ?", [
+        startDate,
+        endDate,
+      ]);
 
       week = newRows[0];
     }
@@ -127,19 +124,17 @@ app.post("/api/expenses", async (req, res) => {
   let { startDate, endDate, whoAreYou, expense } = req.body;
   let name = whoAreYou;
   if (!startDate || !endDate || !name || expense == null) {
-    return res
-      .status(400)
-      .json({ error: "startDate, endDate, name and expense are required" });
+    return res.status(400).json({ error: "startDate, endDate, name and expense are required" });
   }
   startDate = startDate.split(".").reverse().join("-");
   endDate = endDate.split(".").reverse().join("-");
   const conn = await pool.getConnection();
   try {
     // Haftalık bütçe kaydını bul
-    const [weekRows] = await conn.execute(
-      "SELECT * FROM weekly_budget WHERE start_date = ? AND end_date = ?",
-      [startDate, endDate]
-    );
+    const [weekRows] = await conn.execute("SELECT * FROM weekly_budget WHERE start_date = ? AND end_date = ?", [
+      startDate,
+      endDate,
+    ]);
 
     if (weekRows.length === 0) {
       return res.status(400).json({ error: "Weekly budget record not found" });
@@ -148,22 +143,17 @@ app.post("/api/expenses", async (req, res) => {
     const week = weekRows[0];
 
     // Harcamayı ekle
-    const [result] = await conn.execute(
-      "INSERT INTO expenses (week_id, name, expense) VALUES (?, ?, ?)",
-      [week.id, name, expense]
-    );
+    const [result] = await conn.execute("INSERT INTO expenses (week_id, name, expense) VALUES (?, ?, ?)", [
+      week.id,
+      name,
+      expense,
+    ]);
 
     // Haftalık bütçedeki harcama toplamını güncelle
-    await conn.execute(
-      "UPDATE weekly_budget SET spent = spent + ? WHERE id = ?",
-      [expense, week.id]
-    );
+    await conn.execute("UPDATE weekly_budget SET spent = spent + ? WHERE id = ?", [expense, week.id]);
 
     // Yeni eklenen harcamayı al
-    const [newExpenseRows] = await conn.execute(
-      "SELECT * FROM expenses WHERE id = ?",
-      [result.insertId]
-    );
+    const [newExpenseRows] = await conn.execute("SELECT * FROM expenses WHERE id = ?", [result.insertId]);
     if (name == "melo") {
       await sendNotification(
         "a9ff4c2b-326b-4a0b-b981-6f67d9621bfc",
@@ -181,6 +171,28 @@ app.post("/api/expenses", async (req, res) => {
       success: true,
       expense: newExpenseRows[0],
     });
+  } catch (err) {
+    console.error("Error:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  } finally {
+    conn.release();
+  }
+});
+
+app.get("/api/delete-expense/:id", async (req, res) => {
+  const { id } = req.params;
+  const conn = await pool.getConnection();
+  try {
+    // Harcamayı sil
+    const [expense] = await conn.execute("SELECT * FROM expenses WHERE id = ?", [id]);
+    await conn.execute("DELETE FROM expenses WHERE id = ?", [id]);
+    // get last week
+    const [lastWeek] = await conn.execute("SELECT * FROM weekly_budget ORDER BY start_date DESC LIMIT 1");
+    let spent = lastWeek[0].spent;
+    spent -= expense[0].expense;
+    // calculate total spent of last week
+    await conn.execute("UPDATE weekly_budget SET spent = ? WHERE id = ?", [spent, lastWeek[0].id]);
+    res.json({ success: true });
   } catch (err) {
     console.error("Error:", err.message);
     res.status(500).json({ error: "Internal server error" });
